@@ -1,0 +1,127 @@
+#include <chrono>
+#include <fstream>
+#include <iostream>
+#include <stack>
+#include <thread>
+#include <vector>
+#include <mutex>
+
+// Representação do labirinto
+using Maze = std::vector<std::vector<char>>;
+
+// Estrutura para representar uma posição no labirinto
+struct Position {
+    int row;
+    int col;
+};
+
+// Variáveis globais
+Maze maze;
+int num_rows;
+int num_cols;
+std::stack<Position> valid_positions;
+std::mutex mtx; // Mutex para proteger acesso a valid_positions
+
+// Função para carregar o labirinto de um arquivo
+Position load_maze(const std::string &nome_arquivo) {
+    std::ifstream file(nome_arquivo);
+    if (!file) {
+        std::cerr << "Erro ao abrir o arquivo: " << nome_arquivo << std::endl;
+        return {-1, -1};
+    }
+
+    // Lê o número de linhas e colunas
+    file >> num_rows >> num_cols;
+
+    // Redimensiona a matriz
+    maze.resize(num_rows, std::vector<char>(num_cols));
+
+    Position pos_inicial{-1, -1};
+
+    // Lê o conteúdo do labirinto caractere por caractere
+    for (int i = 0; i < num_rows; ++i) {
+        for (int j = 0; j < num_cols; ++j) {
+            file >> maze[i][j];
+            if (maze[i][j] == 'e') {
+                pos_inicial = {i, j}; // Posição inicial encontrada
+            }
+        }
+    }
+
+    file.close();
+    return pos_inicial;
+}
+
+// Função para imprimir o labirinto
+void print_maze(const Position &pos_atual) {
+    for (int i = 0; i < num_rows; ++i) {
+        for (int j = 0; j < num_cols; ++j) {
+            if (i == pos_atual.row && j == pos_atual.col) {
+                std::cout << 'o';
+            } else if (maze[i][j] == '.') {
+                std::cout << '.';
+            } else {
+                std::cout << maze[i][j];
+            }
+        }
+        std::cout << '\n';
+    }
+}
+
+// Função para verificar se uma posição é válida
+bool is_valid_position(int row, int col) {
+    return (row >= 0 && row < num_rows && col >= 0 && col < num_cols &&
+            (maze[row][col] == 'x' || maze[row][col] == 's'));
+}
+
+// Função que explora um caminho
+void explore_path(Position pos) {
+    if (maze[pos.row][pos.col] == 's') {
+        std::cout << "Saída encontrada em: (" << pos.row << ", " << pos.col << ")\n";
+        return;
+    }
+
+    // Marca a posição atual como visitada
+    maze[pos.row][pos.col] = '.';
+    print_maze(pos);
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    std::vector<Position> vizinhoss = {
+        {pos.row - 1, pos.col}, // cima
+        {pos.row + 1, pos.col}, // baixo
+        {pos.row, pos.col - 1}, // esquerda
+        {pos.row, pos.col + 1}  // direita
+    };
+
+    std::vector<std::thread> threads;
+    for (const auto &vizinhos : vizinhoss) {
+        if (is_valid_position(vizinhos.row, vizinhos.col)) {
+            // Adiciona a posição válida na pilha de posições
+            {
+                std::lock_guard<std::mutex> lock(mtx);
+                valid_positions.push(vizinhos);
+            }
+            // Cria uma nova thread para explorar o caminho
+            threads.emplace_back(explore_path, vizinhos);
+        }
+    }
+
+    // Esper a que todas as threads terminem
+    for (auto &thread : threads) {
+        thread.join();
+    }
+}
+
+int main() {
+    std::string nome_arquivo = "maze4.txt"; // Nome do arquivo fixo no código
+
+    Position initial_pos = load_maze(nome_arquivo);
+    if (initial_pos.row == -1 || initial_pos.col == -1) {
+        std::cerr << "Posição inicial não encontrada no labirinto." << std::endl;
+        return 1;
+    }
+
+    explore_path(initial_pos);
+
+    return 0;
+}
